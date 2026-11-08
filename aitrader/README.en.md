@@ -1,5 +1,7 @@
 # GMGN AI Trader (local)
 
+> **Paper-only entry:** `cd aitrader && python -m paper` (see [PAPER.md](PAPER.md)). That process cannot place live orders. `python app.py` is the upstream live-capable demo and is not the paper runtime.
+
 English · **[中文](README.md)**
 
 Dashboard screens, the human trades: deterministic rules cast a wide net → scoring cuts hard → the LLM only explains the survivors → you press one-click buy.
