@@ -1,5 +1,7 @@
 # GMGN AI Trader (local)
 
+> **只做纸面模拟的入口：** `cd aitrader && python -m paper`（见 [PAPER.md](PAPER.md)）。该进程不能真下单。`python app.py` 仍是上游可实盘的演示，不是纸面运行时。
+
 **[English](README.en.md)** · 中文
 
 看板筛、人成交：确定性规则抓全 → 评分砍狠 → LLM 只解释幸存者 → 你按下一键买入。

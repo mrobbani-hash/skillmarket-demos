@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAPER ONLY simulator</title>
+<style>
+  :root { color-scheme: dark; --bg:#12140f; --panel:#1c1f16; --line:#343828; --text:#e7e4d4; --dim:#a39e86; --amber:#e2b340; --clay:#e07a5f; --ok:#b6d37a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  header { position:sticky; top:0; z-index:2; background:#3a2a0a; border-bottom:3px solid var(--amber); padding:12px 16px; }
+  h1 { margin:0; font-size:18px; letter-spacing:.04em; }
+  h2 { margin:0 0 8px; font-size:15px; }
+  .sub { color:#ffd98a; font-size:13px; margin-top:4px; }
+  main { padding:16px; display:grid; gap:14px; max-width:1180px; margin:0 auto; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  button, input { font:inherit; }
+  button { background:#2a2e22; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 10px; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.danger { border-color:var(--clay); color:#ffd0c4; }
+  input { background:#111; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 8px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .pill { display:inline-block; border:1px solid var(--amber); color:var(--amber); border-radius:99px; padding:1px 8px; font-size:12px; }
+  .skip { color:var(--clay); }
+  .ok { color:var(--ok); }
+  .dim { color:var(--dim); }
+  ul { margin:6px 0 0; padding-left:18px; }
+  .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+  .banner-stop { color:#ffd0c4; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PAPER ONLY <span class="pill">NO LIVE ORDERS</span></h1>
+  <div class="sub">Synthetic book. No wallet is read. Credentials are not collected. No order can be sent from this page. A 20% gross move is not a 20% net profit. The fee model is an illustration, not an executable GMGN quote.</div>
+</header>
+<main>
+  <section>
+    <h2>Session</h2>
+    <div id="session" class="dim">Loading…</div>
+    <div class="row" style="margin-top:10px">
+      <button id="preset">Load illustrative fake-money example</button>
+      <button id="start">Start</button>
+      <button id="pause">Pause</button>
+      <button id="step">Step fixture +60s</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="killPhrase" placeholder="Type KILL PAPER SESSION" size="28">
+      <button id="kill" class="danger">Kill</button>
+      <input id="resetPhrase" placeholder="Type RESET PAPER BOOK" size="26">
+      <button id="reset" class="danger">Reset book</button>
+    </div>
+    <p class="dim">Start does not open trades. Exits are evaluated only when you press Step. Nothing runs in the background. Kill freezes the book and does not liquidate. Loss and time triggers are not guaranteed exits.</p>
+  </section>
+  <section>
+    <h2>Data source and coverage</h2>
+    <div id="source" class="dim"></div>
+  </section>
+  <section>
+    <h2>Policy</h2>
+    <div id="policy" class="dim">Policies are not configured. The simulator stays stopped until you load the example or post a complete illustrative policy. Those numbers are not a risk recommendation and are not your wallet.</div>
+  </section>
+  <section>
+    <h2>Limitations</h2>
+    <ul id="limits"></ul>
+  </section>
+  <section>
+    <h2>Synthetic candidates</h2>
+    <p class="dim">SYNTHETIC/PAPER fixtures. Not real candidates, prices, or verified security. A skip means a required field was missing, unsupported, or failed. Missing is never treated as safe.</p>
+    <div style="overflow:auto"><table id="candidates"><thead><tr><th>Token</th><th>Decision</th><th>Quote</th><th>Why</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>Paper positions</h2>
+    <div style="overflow:auto"><table id="positions"><thead><tr>
+      <th>Id</th><th>State</th><th>Committed</th><th>Buy input</th><th>Buy fees + ATA</th><th>Sell reserve</th><th>Units</th><th>Gross</th><th>Net</th><th>Exit</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>Event ledger</h2>
+    <div id="ledger" class="mono dim"></div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let idem = () => crypto.randomUUID();
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)};
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok && !data.message) data.message = "HTTP " + res.status;
+  return data;
+}
+
+function money(v) { return v === null || v === undefined || v === "" ? "—" : v; }
+
+function renderSession(s) {
+  const blockers = (s.blockers || []).join(", ") || "none";
+  $("session").innerHTML =
+    `<div class="banner-stop"><b>${s.badge || "PAPER ONLY"}</b> · run <b>${s.run}</b> · blockers: ${blockers}</div>` +
+    `<div class="mono">paper cash ${money(s.cash)} · exposure ${money(s.exposure)} · session budget ${money(s.session_budget_sol)} · per-trade cap ${money(s.per_trade_cap)} · net target ${money(s.net_target)} · realized net ${money(s.realized_pnl)} · realized loss ${money(s.realized_loss)} · paper clock ${s.sim_now}</div>` +
+    `<div class="dim">Live orders possible: ${s.live_trading_possible === false ? "no" : "unknown"} · wallet balance read: ${s.wallet_balance_read === false ? "no" : "unknown"} · background loop: ${s.background_loop === false ? "no" : "unknown"}</div>`;
+  $("limits").innerHTML = (s.limitations || []).map(x => `<li>${x}</li>`).join("");
+  const m = s.market || {};
+  $("source").innerHTML =
+    `<div><b>${m.label || "SYNTHETIC/PAPER"}</b> · source ${m.source_id || "—"} · published_at ${m.published_at ?? "—"} · path step ${m.path_index ?? "—"}</div>` +
+    `<div class="dim">Real candidates: ${m.real_candidates === false ? "no" : "unlabeled"} · real prices: ${m.real_prices === false ? "no" : "unlabeled"} · verified security: ${m.verified_security === false ? "no" : "unlabeled"}</div>` +
+    `<ul>${(m.documented_gaps || []).map(x => `<li>${x}</li>`).join("")}</ul>`;
+  if (!s.policies) {
+    $("policy").textContent = "Policies are not configured. Simulation stays stopped. No max-position, session-budget, loss-halt, per-position-loss, or max-hold number has been chosen for you.";
+  } else {
+    const p = s.policies;
+    $("policy").innerHTML =
+      `<div><b>${p.preset_name}</b> · illustrative fake money</div>` +
+      `<div class="dim">${p.notice || ""}</div>` +
+      `<div class="mono">max positions ${p.max_positions} · budget ${p.session_budget_sol} · loss halt ${p.realized_loss_halt_sol} · per-position loss ${p.per_position_loss_fraction} · max hold ${p.max_hold_seconds}s · quote ttl ${p.quote_ttl_seconds}s</div>` +
+      `<div class="dim">${(p.fee_model && p.fee_model.disclaimer) || ""} ATA reclaim modeled as ${p.fee_model && p.fee_model.ata_reclaimed_on_full_sell}. This is an assumption, not a chain fact.</div>`;
+  }
+}
+
+function renderCandidates(payload) {
+  const body = $("candidates").querySelector("tbody");
+  const rows = (payload.candidates || []).map(c => {
+    const screen = c.screen || {};
+    const why = (screen.reasons || []).slice(0, 4).join(", ") || (screen.eligible ? "configured checks passed on this fixture only" : "");
+    const cls = screen.eligible ? "ok" : "skip";
+    const btn = screen.eligible
+      ? `<button data-token="${c.token_id}">Simulate entry</button>`
+      : "";
+    return `<tr><td class="mono">${c.symbol}<br><span class="pill">SYNTHETIC/PAPER</span></td><td class="${cls}">${screen.decision || "skip"}</td><td>${c.quote_fresh ? "fresh" : "not fresh"}<br><span class="dim">${money(c.price_sol)}</span></td><td class="dim">${why}</td><td>${btn}</td></tr>`;
+  }).join("");
+  body.innerHTML = rows || "<tr><td colspan='5'>No fixture rows.</td></tr>";
+  body.querySelectorAll("button[data-token]").forEach(btn => {
+    btn.onclick = async () => {
+      const out = await api("/api/paper/entries", {token_id: btn.dataset.token, idempotency_key: idem()});
+      if (!out.ok) alert(out.message || out.error || "entry refused");
+      refresh();
+    };
+  });
+}
+
+function renderPositions(s) {
+  const body = $("positions").querySelector("tbody");
+  const rows = (s.positions || []).map(p => {
+    const est = p.estimate || {};
+    const fees = [p.buy_percent_fee, p.buy_fixed_fee, p.ata_rent].filter(Boolean).join(" + ");
+    const net = (p.state === "closed" && p.realized_net != null)
+      ? `realized ${p.realized_net}`
+      : (est.net_ratio ? `${est.net} (${est.net_ratio})` : (est.reason || "—"));
+    const gross = est.gross_ratio || "—";
+    const actions = p.state === "open"
+      ? `<button data-exit="${p.id}">Attempt exit</button>`
+      : (p.state === "buy_ambiguous" || p.state === "exit_ambiguous"
+        ? `<button data-resolve="${p.id}" data-outcome="fail">Resolve unfilled</button> <button data-resolve="${p.id}" data-outcome="fill">Resolve snapshotted fill</button>`
+        : "");
+    return `<tr>
+      <td class="mono">${p.id}<br>${p.symbol}</td>
+      <td>${p.state}</td>
+      <td class="mono">${money(p.committed)}</td>
+      <td class="mono">${money(p.buy_input)}</td>
+      <td class="mono">${fees || "—"}</td>
+      <td class="mono">${money(p.sell_reserve)}</td>
+      <td class="mono">${money(p.filled_units)}</td>
+      <td class="mono">${gross}</td>
+      <td class="mono">${net}</td>
+      <td>${p.exit_reason || (p.last_exit_attempt && p.last_exit_attempt.result) || "—"}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join("");
+  body.innerHTML = rows || "<tr><td colspan='11'>No paper positions.</td></tr>";
+  body.querySelectorAll("button[data-exit]").forEach(btn => {
+    btn.onclick = async () => { await api("/api/paper/exit", {position_id: btn.dataset.exit, idempotency_key: idem()}); refresh(); };
+  });
+  body.querySelectorAll("button[data-resolve]").forEach(btn => {
+    btn.onclick = async () => {
+      await api("/api/paper/resolve", {position_id: btn.dataset.resolve, outcome: btn.dataset.outcome, idempotency_key: idem()});
+      refresh();
+    };
+  });
+}
+
+async function refresh() {
+  const [status, candidates, ledger] = await Promise.all([
+    api("/api/paper/status"),
+    api("/api/paper/candidates"),
+    api("/api/paper/ledger"),
+  ]);
+  renderSession(status);
+  renderCandidates(candidates);
+  renderPositions(status);
+  const events = (ledger.events || []).slice(-12).reverse();
+  $("ledger").textContent = events.map(e => `${e.id} @ ${e.sim_now}  ${e.kind}  ${JSON.stringify(e.detail)}`).join("\n") || "No events yet.";
+}
+
+$("preset").onclick = async () => { await api("/api/paper/preset/example", {}); refresh(); };
+$("start").onclick = async () => { const out = await api("/api/paper/start", {}); if (!out.ok && out.message) alert(out.message); refresh(); };
+$("pause").onclick = async () => { const out = await api("/api/paper/pause", {}); if (!out.ok && out.message) alert(out.message); refresh(); };
+$("step").onclick = async () => { const out = await api("/api/paper/step", {seconds: 60, idempotency_key: idem()}); if (!out.ok && out.message) alert(out.message); refresh(); };
+$("kill").onclick = async () => { const out = await api("/api/paper/kill", {confirm: $("killPhrase").value}); if (!out.ok && out.message) alert(out.message); refresh(); };
+$("reset").onclick = async () => { const out = await api("/api/paper/reset", {confirm: $("resetPhrase").value}); if (!out.ok && out.message) alert(out.message); refresh(); };
+refresh();
+</script>
+</body>
+</html>
